@@ -1,0 +1,9 @@
+# Dependencies
+**/node_modules
+
+# Binaries
+api
+!api/
+bench
+!bench/
+*.exe

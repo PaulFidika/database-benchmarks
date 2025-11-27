@@ -1,0 +1,320 @@
+services:
+  # ============================================
+  # CouchDB Cluster (3 nodes)
+  # ============================================
+  couchdb1:
+    image: couchdb:3.3
+    container_name: couchdb1
+    hostname: couchdb1.dbnet
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: password
+      COUCHDB_SECRET: mysecretcookie
+      COUCHDB_ERLANG_COOKIE: mysecretcookie
+      NODENAME: couchdb1.dbnet
+      ERL_FLAGS: "-setcookie mysecretcookie"
+    ports:
+      - "5984:5984"
+    volumes:
+      - couchdb1_data:/opt/couchdb/data
+    networks:
+      - dbnet
+
+  couchdb2:
+    image: couchdb:3.3
+    container_name: couchdb2
+    hostname: couchdb2.dbnet
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: password
+      COUCHDB_SECRET: mysecretcookie
+      COUCHDB_ERLANG_COOKIE: mysecretcookie
+      NODENAME: couchdb2.dbnet
+      ERL_FLAGS: "-setcookie mysecretcookie"
+    ports:
+      - "5985:5984"
+    volumes:
+      - couchdb2_data:/opt/couchdb/data
+    networks:
+      - dbnet
+
+  couchdb3:
+    image: couchdb:3.3
+    container_name: couchdb3
+    hostname: couchdb3.dbnet
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: password
+      COUCHDB_SECRET: mysecretcookie
+      COUCHDB_ERLANG_COOKIE: mysecretcookie
+      NODENAME: couchdb3.dbnet
+      ERL_FLAGS: "-setcookie mysecretcookie"
+    ports:
+      - "5986:5984"
+    volumes:
+      - couchdb3_data:/opt/couchdb/data
+    networks:
+      - dbnet
+
+  couchdb-init:
+    image: curlimages/curl:latest
+    container_name: couchdb-init
+    depends_on:
+      - couchdb1
+      - couchdb2
+      - couchdb3
+    networks:
+      - dbnet
+    command: >
+      sh -c '
+        echo "Waiting for CouchDB nodes..."
+        until curl -s http://admin:password@couchdb1.dbnet:5984/ > /dev/null 2>&1; do sleep 2; done
+        until curl -s http://admin:password@couchdb2.dbnet:5984/ > /dev/null 2>&1; do sleep 2; done
+        until curl -s http://admin:password@couchdb3.dbnet:5984/ > /dev/null 2>&1; do sleep 2; done
+        echo "All nodes up, setting up cluster..."
+
+        curl -s -X POST "http://admin:password@couchdb1.dbnet:5984/_cluster_setup" \
+          -H "Content-Type: application/json" \
+          -d "{\"action\": \"enable_cluster\", \"bind_address\": \"0.0.0.0\", \"username\": \"admin\", \"password\": \"password\", \"node_count\": 3}"
+
+        curl -s -X POST "http://admin:password@couchdb1.dbnet:5984/_cluster_setup" \
+          -H "Content-Type: application/json" \
+          -d "{\"action\": \"enable_cluster\", \"bind_address\": \"0.0.0.0\", \"username\": \"admin\", \"password\": \"password\", \"port\": 5984, \"remote_node\": \"couchdb2.dbnet\", \"remote_current_user\": \"admin\", \"remote_current_password\": \"password\"}"
+        curl -s -X POST "http://admin:password@couchdb1.dbnet:5984/_cluster_setup" \
+          -H "Content-Type: application/json" \
+          -d "{\"action\": \"add_node\", \"host\": \"couchdb2.dbnet\", \"port\": 5984, \"username\": \"admin\", \"password\": \"password\"}"
+
+        curl -s -X POST "http://admin:password@couchdb1.dbnet:5984/_cluster_setup" \
+          -H "Content-Type: application/json" \
+          -d "{\"action\": \"enable_cluster\", \"bind_address\": \"0.0.0.0\", \"username\": \"admin\", \"password\": \"password\", \"port\": 5984, \"remote_node\": \"couchdb3.dbnet\", \"remote_current_user\": \"admin\", \"remote_current_password\": \"password\"}"
+        curl -s -X POST "http://admin:password@couchdb1.dbnet:5984/_cluster_setup" \
+          -H "Content-Type: application/json" \
+          -d "{\"action\": \"add_node\", \"host\": \"couchdb3.dbnet\", \"port\": 5984, \"username\": \"admin\", \"password\": \"password\"}"
+
+        curl -s -X POST "http://admin:password@couchdb1.dbnet:5984/_cluster_setup" \
+          -H "Content-Type: application/json" \
+          -d "{\"action\": \"finish_cluster\"}"
+
+        echo "Cluster setup complete!"
+
+        curl -s -X PUT "http://admin:password@couchdb1.dbnet:5984/app_users"
+        curl -s -X PUT "http://admin:password@couchdb1.dbnet:5984/galleries"
+        curl -s -X PUT "http://admin:password@couchdb1.dbnet:5984/comments"
+
+        for node in couchdb1.dbnet couchdb2.dbnet couchdb3.dbnet; do
+          curl -s -X PUT "http://admin:password@$$node:5984/_node/_local/_config/httpd/enable_cors" -d "\"true\""
+          curl -s -X PUT "http://admin:password@$$node:5984/_node/_local/_config/cors/origins" -d "\"*\""
+          curl -s -X PUT "http://admin:password@$$node:5984/_node/_local/_config/cors/credentials" -d "\"true\""
+          curl -s -X PUT "http://admin:password@$$node:5984/_node/_local/_config/cors/methods" -d "\"GET, PUT, POST, HEAD, DELETE\""
+          curl -s -X PUT "http://admin:password@$$node:5984/_node/_local/_config/cors/headers" -d "\"accept, authorization, content-type, origin, referer\""
+        done
+
+        echo "CouchDB cluster ready!"
+      '
+
+  # ============================================
+  # CockroachDB Cluster (3 nodes)
+  # ============================================
+  crdb1:
+    image: cockroachdb/cockroach:v23.2.0
+    container_name: crdb1
+    command: start --insecure --join=crdb1,crdb2,crdb3 --advertise-addr=crdb1
+    ports:
+      - "26257:26257"
+      - "8080:8080"
+    volumes:
+      - crdb1_data:/cockroach/cockroach-data
+    networks:
+      - dbnet
+
+  crdb2:
+    image: cockroachdb/cockroach:v23.2.0
+    container_name: crdb2
+    command: start --insecure --join=crdb1,crdb2,crdb3 --advertise-addr=crdb2
+    ports:
+      - "26258:26257"
+      - "8081:8080"
+    volumes:
+      - crdb2_data:/cockroach/cockroach-data
+    networks:
+      - dbnet
+
+  crdb3:
+    image: cockroachdb/cockroach:v23.2.0
+    container_name: crdb3
+    command: start --insecure --join=crdb1,crdb2,crdb3 --advertise-addr=crdb3
+    ports:
+      - "26259:26257"
+      - "8082:8080"
+    volumes:
+      - crdb3_data:/cockroach/cockroach-data
+    networks:
+      - dbnet
+
+  crdb-init:
+    image: cockroachdb/cockroach:v23.2.0
+    container_name: crdb-init
+    command: init --insecure --host=crdb1
+    depends_on:
+      - crdb1
+      - crdb2
+      - crdb3
+    networks:
+      - dbnet
+
+  # ============================================
+  # YugabyteDB Cluster (3 nodes)
+  # ============================================
+  yb-master1:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-master1
+    command: /home/yugabyte/bin/yb-master --fs_data_dirs=/mnt/data --master_addresses=yb-master1:7100,yb-master2:7100,yb-master3:7100 --rpc_bind_addresses=yb-master1:7100 --replication_factor=3
+    ports:
+      - "7000:7000"
+    volumes:
+      - yb_master1_data:/mnt/data
+    networks:
+      - dbnet
+
+  yb-master2:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-master2
+    command: /home/yugabyte/bin/yb-master --fs_data_dirs=/mnt/data --master_addresses=yb-master1:7100,yb-master2:7100,yb-master3:7100 --rpc_bind_addresses=yb-master2:7100 --replication_factor=3
+    volumes:
+      - yb_master2_data:/mnt/data
+    networks:
+      - dbnet
+
+  yb-master3:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-master3
+    command: /home/yugabyte/bin/yb-master --fs_data_dirs=/mnt/data --master_addresses=yb-master1:7100,yb-master2:7100,yb-master3:7100 --rpc_bind_addresses=yb-master3:7100 --replication_factor=3
+    volumes:
+      - yb_master3_data:/mnt/data
+    networks:
+      - dbnet
+
+  yb-tserver1:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-tserver1
+    command: /home/yugabyte/bin/yb-tserver --fs_data_dirs=/mnt/data --tserver_master_addrs=yb-master1:7100,yb-master2:7100,yb-master3:7100 --rpc_bind_addresses=yb-tserver1:9100 --cql_proxy_bind_address=yb-tserver1:9042 --pgsql_proxy_bind_address=yb-tserver1:5433
+    ports:
+      - "5433:5433"
+      - "9042:9042"
+    volumes:
+      - yb_tserver1_data:/mnt/data
+    depends_on:
+      - yb-master1
+      - yb-master2
+      - yb-master3
+    networks:
+      - dbnet
+
+  yb-tserver2:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-tserver2
+    command: /home/yugabyte/bin/yb-tserver --fs_data_dirs=/mnt/data --tserver_master_addrs=yb-master1:7100,yb-master2:7100,yb-master3:7100 --rpc_bind_addresses=yb-tserver2:9100 --cql_proxy_bind_address=yb-tserver2:9042 --pgsql_proxy_bind_address=yb-tserver2:5433
+    ports:
+      - "5434:5433"
+    volumes:
+      - yb_tserver2_data:/mnt/data
+    depends_on:
+      - yb-master1
+      - yb-master2
+      - yb-master3
+    networks:
+      - dbnet
+
+  yb-tserver3:
+    image: yugabytedb/yugabyte:latest
+    container_name: yb-tserver3
+    command: /home/yugabyte/bin/yb-tserver --fs_data_dirs=/mnt/data --tserver_master_addrs=yb-master1:7100,yb-master2:7100,yb-master3:7100 --rpc_bind_addresses=yb-tserver3:9100 --cql_proxy_bind_address=yb-tserver3:9042 --pgsql_proxy_bind_address=yb-tserver3:5433
+    ports:
+      - "5435:5433"
+    volumes:
+      - yb_tserver3_data:/mnt/data
+    depends_on:
+      - yb-master1
+      - yb-master2
+      - yb-master3
+    networks:
+      - dbnet
+
+  # ============================================
+  # Single-instance PostgreSQL (for comparison)
+  # ============================================
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: demo
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - dbnet
+    command: >
+      postgres
+      -c max_connections=500
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c work_mem=16MB
+
+  # ============================================
+  # API Server (Go) for SQL databases
+  # ============================================
+  api:
+    build: ./api
+    container_name: api
+    ports:
+      - "9090:9090"
+    environment:
+      - CRDB_URL=postgresql://root@crdb1:26257/demo?sslmode=disable
+      - YB_URL=postgresql://yugabyte@yb-tserver1:5433/demo?sslmode=disable
+      - PG_URL=postgresql://postgres:password@postgres:5432/demo?sslmode=disable
+    depends_on:
+      - crdb1
+      - crdb2
+      - crdb3
+      - yb-tserver1
+      - yb-tserver2
+      - yb-tserver3
+      - postgres
+    networks:
+      - dbnet
+
+  # ============================================
+  # Frontend (React)
+  # ============================================
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - couchdb1
+      - api
+    networks:
+      - dbnet
+
+volumes:
+  couchdb1_data:
+  couchdb2_data:
+  couchdb3_data:
+  crdb1_data:
+  crdb2_data:
+  crdb3_data:
+  yb_master1_data:
+  yb_master2_data:
+  yb_master3_data:
+  yb_tserver1_data:
+  yb_tserver2_data:
+  yb_tserver3_data:
+  postgres_data:
+
+networks:
+  dbnet:
+    driver: bridge
