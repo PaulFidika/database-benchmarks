@@ -1,0 +1,16 @@
+{
+  "name": "surrealdb-ws-bench",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "bench": "npx tsx bench.ts"
+  },
+  "dependencies": {
+    "surrealdb": "^1.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
