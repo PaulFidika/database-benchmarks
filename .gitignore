@@ -7,3 +7,25 @@ api
 bench
 !bench/
 *.exe
+
+# Rust build artifacts
+**/target/
+*.wasm
+Cargo.lock
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

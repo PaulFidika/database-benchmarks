@@ -275,6 +275,15 @@ services:
       - CRDB_URL=postgresql://root@crdb1:26257/demo?sslmode=disable
       - YB_URL=postgresql://yugabyte@yb-tserver1:5433/demo?sslmode=disable
       - PG_URL=postgresql://postgres:password@postgres:5432/demo?sslmode=disable
+      - GOMAXPROCS=8
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 4G
+        reservations:
+          cpus: '4'
+          memory: 2G
     depends_on:
       - crdb1
       - crdb2
@@ -285,6 +294,32 @@ services:
       - postgres
     networks:
       - dbnet
+
+  # ============================================
+  # SpacetimeDB (single instance)
+  # ============================================
+  spacetimedb:
+    image: clockworklabs/spacetime:latest
+    container_name: spacetimedb
+    ports:
+      - "3001:3000"
+    volumes:
+      - spacetimedb_data:/stdb/data
+    networks:
+      - dbnet
+    command: start
+
+  # ============================================
+  # SurrealDB (single instance, in-memory for benchmark)
+  # ============================================
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    container_name: surrealdb
+    ports:
+      - "8000:8000"
+    networks:
+      - dbnet
+    command: start --log info --user root --pass root memory
 
   # ============================================
   # Frontend (React)
@@ -301,6 +336,8 @@ services:
       - dbnet
 
 volumes:
+  spacetimedb_data:
+  surrealdb_data:
   couchdb1_data:
   couchdb2_data:
   couchdb3_data:
